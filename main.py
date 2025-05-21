@@ -11,7 +11,7 @@ from datetime import datetime
 from langchain_openai import ChatOpenAI
 import os
 from fastapi.middleware.cors import CORSMiddleware
-from app.tools.tools import make_get_room_types_tool, make_get_available_rooms_tool, make_single_room_booking_tool
+from app.tools.tools import make_get_room_types_tool, make_get_available_rooms_tool, make_single_room_booking_tool, make_get_upcoming_bookings_tool
 import logging
 import json
 logger = logging.getLogger(__name__)
@@ -129,10 +129,12 @@ def chat(
         tool_func = make_get_room_types_tool(db)
         tool_func2 = make_get_available_rooms_tool(db)
         tool_func3 = make_single_room_booking_tool(db)
+        tool_func4 = make_get_upcoming_bookings_tool(db)
         tool_name_to_func = {
             "getRoomTypes": tool_func,
             "getRooms": tool_func2,
-            "single_room_booking": tool_func3
+            "single_room_booking": tool_func3,
+            "get_upcoming_bookings": tool_func4
         }
 
         llm = ChatOpenAI(api_key=os.getenv("OPENAI_API_KEY"), temperature=0.2, model="gpt-4o-mini")
@@ -193,6 +195,9 @@ def chat(
                                     result = tool_func_new.invoke(args)
                                 elif tool_name == "single_room_booking":
                                     tool_func_new = make_single_room_booking_tool(tool_db)
+                                    result = tool_func_new.invoke(args)
+                                elif tool_name == "get_upcoming_bookings":
+                                    tool_func_new = make_get_upcoming_bookings_tool(tool_db)
                                     result = tool_func_new.invoke(args)
                                 else:
                                     result = tool_func.invoke(args)

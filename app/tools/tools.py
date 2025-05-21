@@ -220,3 +220,49 @@ def make_single_room_booking_tool(db_session):
             return json.dumps({"error": f"Failed to create booking: {str(e)}"})
 
     return single_room_booking
+
+def make_get_upcoming_bookings_tool(db_session):
+    @tool
+    def get_upcoming_bookings(email: str):
+        """Get all upcoming bookings for a user."""
+        logger.info(f"get_upcoming_bookings tool called for {email}")
+        
+        # Find user
+        find_user = db_session.query(User).filter(User.email == email).first()
+        if not find_user:
+            return json.dumps({"error": f"User with email {email} not found"})
+        
+        # Get upcoming bookings
+        upcoming_bookings = db_session.query(Booking).filter(
+            Booking.user_id == find_user.id,
+            Booking.check_in > datetime.now()
+        ).all()
+
+        if not upcoming_bookings:
+            return json.dumps({"message": "There are no upcoming bookings made by you till now in our hotel."})
+
+        # Flatten all room UUIDs across all bookings
+        room_ids = [room_id for booking in upcoming_bookings for room_id in booking.rooms]
+
+        # Fetch rooms and room types
+        rooms = db_session.query(Room).filter(Room.id.in_(room_ids)).all()
+        room_dict = {room.id: room for room in rooms}
+
+        room_type_ids = list({room.room_type_id for room in rooms})
+        room_types = db_session.query(RoomType).filter(RoomType.id.in_(room_type_ids)).all()
+        room_type_dict = {rt.id: rt for rt in room_types}
+
+        # Return formatted booking info
+        return json.dumps([
+            {
+                "booking_id": str(booking.id),
+                "room_number": room_dict[booking.rooms[0]].room_no if booking.rooms else "N/A",
+                "room_type": room_type_dict[room_dict[booking.rooms[0]].room_type_id].type.value
+                                if booking.rooms else "N/A",
+                "check_in": booking.check_in.isoformat(),
+                "check_out": booking.check_out.isoformat(),
+                "status": booking.status.value
+            }
+            for booking in upcoming_bookings
+        ])
+    return get_upcoming_bookings
