@@ -82,36 +82,33 @@ def make_get_available_rooms_tool(db_session):
         if not available_rooms:
             room_type_msg = f" of type '{room_type}'" if room_type else ""
             return json.dumps({"error": f"No available rooms{room_type_msg} found for the specified dates"})
-
-        nights = (check_out_date - check_in_date).days
         
+        # Count the number of rooms available for every room type between the check in and check out dates
+        room_type_counts = {}
+        for room in available_rooms:
+            room_type_value = room.RoomType.type.value
+            if room_type_value not in room_type_counts:
+                room_type_counts[room_type_value] = 0
+            room_type_counts[room_type_value] += 1
+
         return json.dumps({
-            "available_rooms": [
-                {
-                    "room_id": str(room.Room.id),
-                    "room_no": room.Room.room_no,
-                    "type": room.RoomType.type.value,
-                    "description": room.RoomType.description,
-                    "capacity": room.RoomType.capacity,
-                    "cost_per_night": float(room.RoomType.cost),
-                    "total_cost": float(room.RoomType.cost) * nights
-                }
-                for room in available_rooms
-            ],
-            "nights": nights,
             "check_in": check_in,
-            "check_out": check_out
+            "check_out": check_out,
+            "nights": (check_out_date - check_in_date).days,
+            "room_type": room_type,
+            "available_room_count": room_type_counts.get(room_type, sum(room_type_counts.values()))
         })
+
     return getRooms
 
 
 def make_single_room_booking_tool(db_session):
     @tool
-    def single_room_booking(email: str, room_type: str, check_in: str, check_out: str, room_number: int = None):
+    def single_room_booking(email: str, room_type: str, check_in: str, check_out: str):
         """Book a single room between check-in and check-out dates. 
         If room_number is provided, book that specific room number. Otherwise, book any available room of the specified type.
         Returns a confirmation message with booking details."""
-        logger.info(f"single_room_booking tool called for {email}, {room_type}, {check_in} to {check_out}, room_number: {room_number}")
+        logger.info(f"single_room_booking tool called for {email}, {room_type}, {check_in} to {check_out}")
 
         # Convert string dates to date objects
         try:
@@ -149,33 +146,16 @@ def make_single_room_booking_tool(db_session):
             .subquery()
         )
 
-        # Find the specific room or any available room of the requested type
-        if room_number:
-            # Book specific room by room number (not UUID)
-            available_room = (
-                db_session.query(Room, RoomType)
-                .join(RoomType, Room.room_type_id == RoomType.id)
-                .filter(
-                    Room.room_no == room_number,
-                    ~Room.id.in_(db_session.query(booked_rooms_subq.c.room_id)),
-                    RoomType.type == room_type_enum
-                )
-                .first()
+        # Book any available room of the requested type
+        available_room = (
+            db_session.query(Room, RoomType)
+            .join(RoomType, Room.room_type_id == RoomType.id)
+            .filter(
+                ~Room.id.in_(db_session.query(booked_rooms_subq.c.room_id)),
+                RoomType.type == room_type_enum
             )
-            
-            if not available_room:
-                return json.dumps({"error": f"Room {room_number} is not available for the specified dates"})
-        else:
-            # Book any available room of the requested type
-            available_room = (
-                db_session.query(Room, RoomType)
-                .join(RoomType, Room.room_type_id == RoomType.id)
-                .filter(
-                    ~Room.id.in_(db_session.query(booked_rooms_subq.c.room_id)),
-                    RoomType.type == room_type_enum
-                )
-                .first()
-            )
+            .first()
+        )
 
         if not available_room:
             return json.dumps({"error": f"No available {room_type} rooms found for the specified dates"})
