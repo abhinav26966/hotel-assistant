@@ -11,7 +11,7 @@ from datetime import datetime
 from langchain_openai import ChatOpenAI
 import os
 from fastapi.middleware.cors import CORSMiddleware
-from app.tools.tools import make_get_room_types_tool, make_get_available_rooms_tool, make_single_room_booking_tool, make_get_upcoming_bookings_tool
+from app.tools.tools import make_get_room_types_tool, make_get_available_rooms_tool, make_single_room_booking_tool, make_get_upcoming_bookings_tool, make_get_ongoing_bookings_tool, make_get_past_bookings_tool, make_update_booking_tool, make_cancel_booking_tool
 import logging
 import json
 logger = logging.getLogger(__name__)
@@ -130,11 +130,19 @@ def chat(
         tool_func2 = make_get_available_rooms_tool(db)
         tool_func3 = make_single_room_booking_tool(db)
         tool_func4 = make_get_upcoming_bookings_tool(db)
+        tool_func5 = make_get_ongoing_bookings_tool(db)
+        tool_func6 = make_get_past_bookings_tool(db)
+        tool_func7 = make_update_booking_tool(db)
+        tool_func8 = make_cancel_booking_tool(db)
         tool_name_to_func = {
             "getRoomTypes": tool_func,
             "getRooms": tool_func2,
             "single_room_booking": tool_func3,
-            "get_upcoming_bookings": tool_func4
+            "get_upcoming_bookings": tool_func4,
+            "get_ongoing_bookings": tool_func5,
+            "get_past_bookings": tool_func6,
+            "update_booking": tool_func7,
+            "cancel_booking": tool_func8
         }
 
         llm = ChatOpenAI(api_key=os.getenv("OPENAI_API_KEY"), temperature=0.2, model="gpt-4o-mini")
@@ -199,6 +207,18 @@ def chat(
                                 elif tool_name == "get_upcoming_bookings":
                                     tool_func_new = make_get_upcoming_bookings_tool(tool_db)
                                     result = tool_func_new.invoke(args)
+                                elif tool_name == "get_ongoing_bookings":
+                                    tool_func_new = make_get_ongoing_bookings_tool(tool_db)
+                                    result = tool_func_new.invoke(args)
+                                elif tool_name == "get_past_bookings":
+                                    tool_func_new = make_get_past_bookings_tool(tool_db)
+                                    result = tool_func_new.invoke(args)
+                                elif tool_name == "update_booking":
+                                    tool_func_new = make_update_booking_tool(tool_db)
+                                    result = tool_func_new.invoke(args)
+                                elif tool_name == "cancel_booking":
+                                    tool_func_new = make_cancel_booking_tool(tool_db)
+                                    result = tool_func_new.invoke(args)                                    
                                 else:
                                     result = tool_func.invoke(args)
                                 

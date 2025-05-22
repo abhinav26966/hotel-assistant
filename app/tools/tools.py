@@ -266,3 +266,168 @@ def make_get_upcoming_bookings_tool(db_session):
             for booking in upcoming_bookings
         ])
     return get_upcoming_bookings
+
+def make_get_past_bookings_tool(db_session):
+    @tool
+    def get_past_bookings(email: str):
+        """Get all past bookings for a user."""
+        logger.info(f"get_past_bookings tool called for {email}")
+        
+        # Find user
+        find_user = db_session.query(User).filter(User.email == email).first()
+        if not find_user:
+            return json.dumps({"error": f"User with email {email} not found"})
+        
+        # Get upcoming bookings
+        past_bookings = db_session.query(Booking).filter(
+            Booking.user_id == find_user.id,
+            Booking.check_out < datetime.now()
+        ).all()
+
+        if not past_bookings:
+            return json.dumps({"message": "There are no past bookings made by you till now in our hotel."})
+
+        # Flatten all room UUIDs across all bookings
+        room_ids = [room_id for booking in past_bookings for room_id in booking.rooms]
+
+        # Fetch rooms and room types
+        rooms = db_session.query(Room).filter(Room.id.in_(room_ids)).all()
+        room_dict = {room.id: room for room in rooms}
+
+        room_type_ids = list({room.room_type_id for room in rooms})
+        room_types = db_session.query(RoomType).filter(RoomType.id.in_(room_type_ids)).all()
+        room_type_dict = {rt.id: rt for rt in room_types}
+
+        # Return formatted booking info
+        return json.dumps([
+            {
+                "booking_id": str(booking.id),
+                "room_number": room_dict[booking.rooms[0]].room_no if booking.rooms else "N/A",
+                "room_type": room_type_dict[room_dict[booking.rooms[0]].room_type_id].type.value
+                                if booking.rooms else "N/A",
+                "check_in": booking.check_in.isoformat(),
+                "check_out": booking.check_out.isoformat(),
+                "status": booking.status.value
+            }
+            for booking in past_bookings
+        ])
+    return get_past_bookings
+
+def make_get_ongoing_bookings_tool(db_session):
+    @tool
+    def get_ongoing_bookings(email: str):
+        """Get all ongoing bookings for a user."""
+        logger.info(f"get_ongoing_bookings tool called for {email}")
+        
+        # Find user
+        find_user = db_session.query(User).filter(User.email == email).first()
+        if not find_user:
+            return json.dumps({"error": f"User with email {email} not found"})
+        
+        # Get upcoming bookings
+        ongoing_bookings = db_session.query(Booking).filter(
+            Booking.user_id == find_user.id,
+            Booking.check_in <= datetime.now(),
+            Booking.check_out >= datetime.now()
+        ).all()
+
+        if not ongoing_bookings:
+            return json.dumps({"message": "There are no ongoing bookings made by you till now in our hotel."})
+
+        # Flatten all room UUIDs across all bookings
+        room_ids = [room_id for booking in ongoing_bookings for room_id in booking.rooms]
+
+        # Fetch rooms and room types
+        rooms = db_session.query(Room).filter(Room.id.in_(room_ids)).all()
+        room_dict = {room.id: room for room in rooms}
+
+        room_type_ids = list({room.room_type_id for room in rooms})
+        room_types = db_session.query(RoomType).filter(RoomType.id.in_(room_type_ids)).all()
+        room_type_dict = {rt.id: rt for rt in room_types}
+
+        # Return formatted booking info
+        return json.dumps([
+            {
+                "booking_id": str(booking.id),
+                "room_number": room_dict[booking.rooms[0]].room_no if booking.rooms else "N/A",
+                "room_type": room_type_dict[room_dict[booking.rooms[0]].room_type_id].type.value
+                                if booking.rooms else "N/A",
+                "check_in": booking.check_in.isoformat(),
+                "check_out": booking.check_out.isoformat(),
+                "status": booking.status.value
+            }
+            for booking in ongoing_bookings
+        ])
+    return get_ongoing_bookings
+
+def make_update_booking_tool(db_session):
+    @tool
+    def update_booking(booking_id: str, check_in: str, check_out: str, email: str):
+        """Update the check-in and check-out dates of a booking."""
+        logger.info(f"update_booking tool called for {booking_id}, {check_in}, {check_out}, {email}")
+        
+        # Find user
+        find_user = db_session.query(User).filter(User.email == email).first()
+        if not find_user:
+            return json.dumps({"error": f"User with email {email} not found"})
+        
+        # Find booking
+        booking = db_session.query(Booking).filter(Booking.id == booking_id).first()
+        if not booking:
+            return json.dumps({"error": f"Booking with id {booking_id} not found"})
+        
+        # Check if the same user have a booking for the same check in and check out dates
+        existing_booking = db_session.query(Booking).filter(
+            Booking.user_id == find_user.id,
+            Booking.check_in == parse_date(check_in),
+            Booking.check_out == parse_date(check_out),
+            Booking.status != BookingStatus.Cancelled
+        ).first()
+
+        if existing_booking:
+            return json.dumps([
+                {"error": f"You already have a booking for the same dates. Please choose different dates. Booking id: {existing_booking.id} with check in date: {existing_booking.check_in.isoformat()} and check out date: {existing_booking.check_out.isoformat()}"}
+            ])
+        
+        # Update booking
+        booking.check_in = parse_date(check_in)
+        booking.check_out = parse_date(check_out)
+        db_session.commit()
+        
+        return json.dumps([
+            {
+                "booking_id": str(booking.id),
+                "check_in": booking.check_in.isoformat(),
+                "check_out": booking.check_out.isoformat(),
+                "status": booking.status.value
+            }
+        ])
+    return update_booking
+
+def make_cancel_booking_tool(db_session):
+    @tool
+    def cancel_booking(booking_id: str, email: str):
+        """Cancel a booking."""
+        logger.info(f"cancel_booking tool called for {booking_id}, {email}")
+        
+        # Find user
+        find_user = db_session.query(User).filter(User.email == email).first()
+        if not find_user:
+            return json.dumps({"error": f"User with email {email} not found"})
+        
+        # Find booking
+        booking = db_session.query(Booking).filter(Booking.id == booking_id).first()
+        if not booking:
+            return json.dumps({"error": f"Booking with id {booking_id} not found"})
+        
+        # Cancel booking
+        booking.status = BookingStatus.Cancelled
+        db_session.commit()
+
+        return json.dumps([
+            {
+                "booking_id": str(booking.id),
+                "status": booking.status.value
+            }
+        ])
+    return cancel_booking
