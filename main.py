@@ -279,7 +279,7 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
                 "- Standard: max 2 guests\n"
             "5. Inform the user and suggest booking multiple rooms one-by-one if needed.\n"
             "6. Book rooms using the lowest available `room_number`, not `room_id`.\n"
-            "7. Collect email address before booking if not provided\n"
+            "7. Collect registered email address before booking if not provided\n"
             "8. NEVER ask for confirmation multiple times - confirm once then book\n\n"
             "9. If the user asks to book a room which is before current date {current_date}, tell them that you can not book a room which is before current date {current_date}.\n"
             "MULTIPLE BOOKINGS:\n"
@@ -308,7 +308,7 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
             "- If the user tells you that they want to book multiple rooms at a time then you have to tell them that you can only book one room at a time. However, you can tell them that they can book more rooms one by one.\n"
             "- ONLY GIVE FOCUSED RESPONSES. YOU ARE A HOTEL ASSISTANT AND YOU CAN NOT ANSWER ANYTHING ELSE OTHER THAN GENERAL QUESTIONS.\n"
             "COMPLETION RULES:\n"
-            "- Complete bookings once the user confirms all the details after giving email and room selection\n"
+            "- Complete bookings once the user confirms all the details after giving registered email and room selection\n"
             "- Ask the user to confirm the booking details once again just before and properly completing the booking\n"
             "- Display full booking confirmation with all details\n"
             "- Don't repeat information collection\n"
@@ -397,16 +397,130 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
                                     guest_email = confirmation.get("guest_email")
                                     guest_name = llm.invoke(f"Generate a name for the guest with email {guest_email}, Your response should only be the name and nothing else.")
                                     guest_name = guest_name.content.strip()
-                                    email_body = (
-                                        f"Dear {guest_name},\n\n"
-                                        f"Your booking has been confirmed.\n"
-                                        f"Room Type: {confirmation.get('room_type')}\n"
-                                        f"Room Number: {confirmation.get('room_number')}\n"
-                                        f"Check-in: {confirmation.get('check_in')}\n"
-                                        f"Check-out: {confirmation.get('check_out')}\n"
-                                        f"Booking ID: {confirmation.get('booking_id')}\n\n"
-                                        f"Thank you for choosing our service!\n"
-                                    )
+                                    email_body = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booking Confirmation</title>
+    <style>
+        body {{
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }}
+        .header {{
+            background-color: #1a73e8;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 5px 5px 0 0;
+        }}
+        .content {{
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 0 0 5px 5px;
+            border: 1px solid #ddd;
+        }}
+        .booking-details {{
+            background-color: white;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            border-left: 4px solid #1a73e8;
+        }}
+        .detail-row {{
+            display: flex;
+            margin-bottom: 10px;
+        }}
+        .detail-label {{
+            font-weight: bold;
+            width: 120px;
+            color: #555;
+        }}
+        .detail-value {{
+            flex-grow: 1;
+        }}
+        .booking-id {{
+            font-size: 18px;
+            color: #1a73e8;
+            font-weight: bold;
+            margin-top: 15px;
+            border-top: 1px solid #ddd;
+            padding-top: 15px;
+        }}
+        .footer {{
+            text-align: center;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #777;
+        }}
+        .button {{
+            display: inline-block;
+            background-color: #1a73e8;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-top: 15px;
+        }}
+        @media only screen and (max-width: 480px) {{
+            .detail-row {{
+                flex-direction: column;
+            }}
+            .detail-label {{
+                width: 100%;
+                margin-bottom: 5px;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Hey, Vera here!</h1>
+        <h1>Booking Confirmation</h1>
+    </div>
+    <div class="content">
+        <p>Dear {guest_name},</p>
+        <p>Thank you for choosing our hotel. Your booking has been confirmed!</p>
+        
+        <div class="booking-details">
+            <div class="detail-row">
+                <div class="detail-label">Room Type:</div>
+                <div class="detail-value">{confirmation.get('room_type')}</div>
+            </div>
+            <div class="detail-row">
+                <div class="detail-label">Room Number:</div>
+                <div class="detail-value">{confirmation.get('room_number')}</div>
+            </div>
+            <div class="detail-row">
+                <div class="detail-label">Check-in:</div>
+                <div class="detail-value">{confirmation.get('check_in')}</div>
+            </div>
+            <div class="detail-row">
+                <div class="detail-label">Check-out:</div>
+                <div class="detail-value">{confirmation.get('check_out')}</div>
+            </div>
+            <div class="booking-id">
+                Booking ID: {confirmation.get('booking_id')}
+            </div>
+        </div>
+        
+        <p>We're excited to welcome you to our hotel. If you have any questions or special requests before your arrival, please don't hesitate to contact us.</p>
+    </div>
+    <div class="footer">
+        <p>This is an automated email. Please do not reply to this message.</p>
+        <p>&copy; {datetime.now().year} Hotel Name. All rights reserved.</p>
+        <p>123 Hotel Street, City, Country | +1 (123) 456-7890</p>
+    </div>
+</body>
+</html>
+"""
 
                                     # print("Email body: ", email_body)
                                     await send_booking_confirmation(
