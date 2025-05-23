@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     POSTGRES_URL: str
     OPENAI_API_KEY: str
     DEEPGRAM_API_KEY: str
+    ELEVENLABS_API_KEY: str
     class Config:
         env_file = ".env"
 

@@ -18,12 +18,23 @@ from app.config.config import settings
 from fastapi import File, UploadFile
 from io import BytesIO
 from deepgram import Deepgram
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 import aiofiles
 import logging
 import json
 logger = logging.getLogger(__name__)
+import asyncio
 import dotenv
 from fastapi.responses import JSONResponse
+from google.cloud import texttospeech
+import uuid
+from fastapi.responses import FileResponse
+# from elevenlabs import generate, set_api_key, save
+import os
+import requests
+import base64
+import re
 
 dotenv.load_dotenv()
 
@@ -54,6 +65,76 @@ def get_db():
         db.close()
 
 deepgram_api_key=os.getenv("DEEPGRAM_API_KEY")
+
+def clean_markdown_for_tts(text):
+    """
+    Remove markdown formatting for better text-to-speech results
+    while keeping punctuation like periods, commas, and @ symbols.
+    """
+    # Replace code blocks
+    text = re.sub(r'```[\s\S]*?```', '', text)
+    
+    # Replace inline code
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    
+    # Replace headers
+    text = re.sub(r'#{1,6}\s+(.*)', r'\1', text)
+    
+    # Replace bold/italic
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # Bold
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)      # Italic
+    text = re.sub(r'__([^_]+)__', r'\1', text)      # Bold
+    text = re.sub(r'_([^_]+)_', r'\1', text)        # Italic
+    
+    # Replace bullet points and numbered lists
+    text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*\d+\.\s+', '', text, flags=re.MULTILINE)
+    
+    # Replace links but keep text
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    
+    # Replace horizontal rules
+    text = re.sub(r'^\s*[-*_]{3,}\s*$', '', text, flags=re.MULTILINE)
+    
+    # Replace extra newlines and spaces
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r'\s{2,}', ' ', text)
+    
+    return text.strip()
+
+def generate_speech_from_text(text, voice="Laura", model="eleven_monolingual_v1"):
+    api_key = os.getenv("ELEVENLABS_API_KEY")
+    if not api_key:
+        raise RuntimeError("ELEVENLABS_API_KEY not set in environment.")
+
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice}"
+
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg"
+    }
+
+    payload = {
+        "text": text,
+        "model_id": model,
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.75
+        }
+    }
+
+    response = requests.post(url, headers=headers, json=payload)
+
+    if response.status_code != 200:
+        raise RuntimeError(f"TTS failed: {response.status_code} {response.text}")
+
+    # Instead of saving to a file, return audio data as base64
+    audio_data = response.content
+    audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+    
+    logger.info(f"[TTS] Generated audio | Size: {len(audio_data)} bytes")
+    return audio_base64
 
 @app.post("/voice-chat")
 async def voice_chat(
@@ -121,14 +202,24 @@ async def voice_chat(
         # Get AI response
         try:
             ai_response = await chat(user_msg, background_tasks, db)
-            # logger.info(f"AI response: {ai_response.message}")
+            
+            # Clean markdown from the response before TTS
+            clean_message = clean_markdown_for_tts(ai_response.message)
+            logger.info(f"Original message length: {len(ai_response.message)}, Cleaned length: {len(clean_message)}")
+            
+            # Generate speech with ElevenLabs - now returns base64 data
+            audio_base64 = generate_speech_from_text(clean_message, voice="FGY2WhTYpPnrIDTdsKH5")
+
             return JSONResponse(content={
                 "user_message": transcript,
-                "ai_message": ai_response.message
+                "ai_message": ai_response.message,
+                "audio_data": audio_base64,
+                "content_type": "audio/mpeg"
             })
+
         except Exception as e:
-            logger.error(f"Error getting AI response: {e}")
-            raise HTTPException(status_code=500, detail="Failed to get AI response")
+            logger.error(f"Error generating AI response: {e}")
+            raise HTTPException(status_code=500, detail="Failed to generate AI response")
 
     except HTTPException:
         raise
@@ -200,6 +291,7 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
                 "- After each tool response, trust your own summaries and never repeat the same tool call unless the user asks again.\n"
                 "- Look for phrases like 'I want to book another room' to start new bookings.\n\n"
             "RESPONSE RULES:\n"
+            "- Never say Please hold on a moment or something like that. Just respond with the response.\n"
             "- Remember all previously provided information in the conversation\n"
             "- ALWAYS filter room results using room_type parameter when user specifies preference\n"
             "- Show rooms in decorated format with clear pricing\n"
@@ -303,8 +395,8 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
 
                                     confirmation = booking_data.get("booking_confirmation", {})
                                     guest_email = confirmation.get("guest_email")
-                                    guest_name = guest_email.split("@")[0].capitalize() if guest_email else "Guest"
-
+                                    guest_name = llm.invoke(f"Generate a name for the guest with email {guest_email}, Your response should only be the name and nothing else.")
+                                    guest_name = guest_name.content.strip()
                                     email_body = (
                                         f"Dear {guest_name},\n\n"
                                         f"Your booking has been confirmed.\n"
