@@ -40,6 +40,7 @@ A voice-enabled hotel booking assistant application. The assistant helps users b
 Create a `.env` file in the root directory with:
 
 ```
+POSTGRES_URL=your_postgres_url
 OPENAI_API_KEY=your_openai_api_key
 DEEPGRAM_API_KEY=your_deepgram_api_key
 SMTP_HOST=your_smtp_host
@@ -47,6 +48,7 @@ SMTP_PORT=your_smtp_port
 SMTP_USER=your_smtp_username
 SMTP_PASSWORD=your_smtp_password
 EMAIL_FROM=your_sender_email
+ELEVENLABS_API_KEY=your_elevellabs_api
 ```
 
 ### Backend Setup
@@ -99,6 +101,7 @@ npm start
 - `/conversations` - Create a new conversation
 - `/chat` - Send and receive text messages
 - `/voice-chat` - Send voice recordings for processing
+- `/play-audio` - Plays the response as audio from AI
 
 ## Architecture
 
