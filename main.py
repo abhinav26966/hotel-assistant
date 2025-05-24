@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.schemas.schemas import MessageCreate, MessageResponse, UserCreate, UserLogin, UserResponse, ConversationCreate, ConversationResponse
@@ -35,17 +35,55 @@ import os
 import requests
 import base64
 import re
+from starlette.middleware.base import BaseHTTPMiddleware
+import time
 
 dotenv.load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
+# First, define the allowed origins at the top level for consistency
+ALLOWED_ORIGINS = [
+    "https://api-vera.emnagar.site", 
+    "http://api-vera.emnagar.site", 
+    "https://vera.emnagar.site", 
+    "http://vera.emnagar.site",
+    "http://localhost:3000"
+]
+
+# Define CORS preflight middleware
+class CORSPreflightMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # Handle CORS preflight requests
+        if request.method == "OPTIONS":
+            # Get origin from request headers
+            origin = request.headers.get("origin", "")
+            
+            # Only allow origins in our allowed list
+            allow_origin = origin if origin in ALLOWED_ORIGINS else ALLOWED_ORIGINS[0]
+            
+            # Return a preflight response
+            headers = {
+                "Access-Control-Allow-Origin": allow_origin,
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Max-Age": "3600",
+            }
+            return JSONResponse(content={}, headers=headers)
+        
+        # For regular requests, proceed with normal handling
+        return await call_next(request)
+
 app = FastAPI()
 
-# Configure CORS
+# Add our custom CORS preflight middleware first
+app.add_middleware(CORSPreflightMiddleware)
+
+# Then configure the standard CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -389,6 +427,7 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
                             summary_text = extract_summary_from_tool_result(result, tool_name)
                             if tool_name == "single_room_booking":
                                 # print("entering the email sending part")
+                                email_status = "not_sent"
                                 try:
                                     booking_data = json.loads(result)
                                     # print(booking_data)
@@ -522,17 +561,29 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
 </html>
 """
 
-                                    # print("Email body: ", email_body)
-                                    await send_booking_confirmation(
+                                    # Don't await email sending here to avoid blocking the API response
+                                    success = await send_booking_confirmation(
                                         guest_email,
                                         "Your Hotel Booking Confirmation",
                                         email_body
                                     )
+                                    email_status = "sent" if success else "failed"
                                 except Exception as e:
-                                    logger.error(f"Email sending error: {e}")
-
-                            if tool_name == "single_room_booking":
-                                summary_text += "\n\n[NOTE FOR AI MEMORY]: This booking is completed. Do not attempt to book again unless the user clearly asks for a new booking."
+                                    logger.error(f"Email preparation error: {e}")
+                                    email_status = "error"
+                                
+                                # Continue with the flow regardless of email status
+                                if tool_name == "single_room_booking":
+                                    # Add email status to the response to communicate it to the frontend
+                                    summary_text += f"\n\n[NOTE FOR AI MEMORY]: This booking is completed. Email status: {email_status}. Do not attempt to book again unless the user clearly asks for a new booking."
+                                    
+                                    # Try to update the result with email status if it's valid JSON
+                                    try:
+                                        result_data = json.loads(result)
+                                        result_data["email_status"] = email_status
+                                        result = json.dumps(result_data)
+                                    except:
+                                        pass
                             lc_messages.append(AIMessage(content=summary_text))
                         except Exception as e:
                             logger.error(f"Tool error: {e}")
@@ -606,18 +657,6 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
             raise HTTPException(status_code=500, detail="An unexpected error occurred")
         finally:
             error_db.close()
-
-@app.options("/voice-chat")
-async def options_voice_chat():
-    return JSONResponse(
-        content={},
-        headers={
-            "Access-Control-Allow-Origin": "http://localhost:3000",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "true",
-        },
-    )
 
 @app.get("/user/{user_id}/conversations")
 def get_user_conversations(user_id: UUID, db: Session = Depends(get_db)):

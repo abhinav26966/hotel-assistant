@@ -5,6 +5,7 @@ from email.message import EmailMessage
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +36,25 @@ async def send_booking_confirmation(to_email: str, subject: str, body: str):
 
         logger.info(f"Sending HTML email to {to_email} from {FROM_EMAIL} via {SMTP_HOST}:{SMTP_PORT}")
 
-        await aiosmtplib.send(
-            message,
-            hostname=SMTP_HOST,
-            port=SMTP_PORT,
-            username=SMTP_USER,
-            password=SMTP_PASS,
-            start_tls=True
-        )
+        # Add timeout to prevent hanging
+        try:
+            await asyncio.wait_for(
+                aiosmtplib.send(
+                    message,
+                    hostname=SMTP_HOST,
+                    port=SMTP_PORT,
+                    username=SMTP_USER,
+                    password=SMTP_PASS,
+                    start_tls=True
+                ),
+                timeout=5.0  # 5 second timeout
+            )
+            logger.info(f"Email sent successfully to {to_email}")
+            return True
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout sending email to {to_email}")
+            return False
 
-        logger.info(f"Email sent successfully to {to_email}")
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {e}")
+        return False  # Return False instead of raising exception

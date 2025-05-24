@@ -4,3 +4,6 @@ frontend
 venv
 .DS_Store
 chroma_storage
+Dockerfile.fixed
+install_dependencies.sh
+working_requirements.txt
