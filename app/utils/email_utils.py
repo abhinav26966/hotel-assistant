@@ -40,15 +40,15 @@ async def send_booking_confirmation(to_email: str, subject: str, body: str):
         try:
             await asyncio.wait_for(
                 aiosmtplib.send(
-                    message,
-                    hostname=SMTP_HOST,
-                    port=SMTP_PORT,
-                    username=SMTP_USER,
-                    password=SMTP_PASS,
-                    start_tls=True
+            message,
+            hostname=SMTP_HOST,
+            port=SMTP_PORT,
+            username=SMTP_USER,
+            password=SMTP_PASS,
+            start_tls=True
                 ),
                 timeout=5.0  # 5 second timeout
-            )
+        )
             logger.info(f"Email sent successfully to {to_email}")
             return True
         except asyncio.TimeoutError:

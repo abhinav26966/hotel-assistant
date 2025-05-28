@@ -1,5 +1,6 @@
 from fastapi import Depends, FastAPI, HTTPException, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.db.session import SessionLocal
 from app.schemas.schemas import MessageCreate, MessageResponse, UserCreate, UserLogin, UserResponse, ConversationCreate, ConversationResponse
 from app.crud import crud
@@ -287,7 +288,9 @@ def create_conversation(conv: ConversationCreate, db: Session = Depends(get_db))
 
 @app.get("/")
 def read_root(db: Session = Depends(get_db)):
-    users = db.execute("SELECT * FROM hotelassistant.users").fetchall()
+    result = db.execute(text("SELECT * FROM hotelassistant.users")).fetchall()
+    # Convert list of Row objects to list of dictionaries
+    users = [dict(row._mapping) for row in result] 
     return users
 
 @app.post("/chat", response_model=MessageResponse)
@@ -303,7 +306,11 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
 
         lc_messages = []
         current_year = datetime.now().year
+        current_day = datetime.now().day
+        current_day_str = str(current_day)
+        current_year_str = str(current_year)
         current_date = datetime.now().date()
+        current_date_str = current_date.strftime("%Y-%m-%d")
 
         system_prompt = (
             "You are Vera, a hotel assistant specializing in room bookings. Follow these STRICT rules:\n\n"
@@ -319,7 +326,8 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
             "6. Book rooms using the lowest available `room_number`, not `room_id`.\n"
             "7. Collect registered email address before booking if not provided\n"
             "8. NEVER ask for confirmation multiple times - confirm once then book\n\n"
-            "9. If the user asks to book a room which is before current date {current_date}, tell them that you can not book a room which is before current date {current_date}.\n"
+            "9. Today's date is {current_date_str} and Today's day is {current_day_str}. All bookings must be for a check-in date of {current_date_str} or later. If the user asks for a check-in date *before* {current_date_str}, you must inform them that this is not possible and they need to choose a date from {current_date_str} onwards.\n"
+            "10. If user asks to check out on X day, then check out the nearest X day from {current_date_str} with taking reference from {current_day_str}.\n"
             "MULTIPLE BOOKINGS:\n"
                 "- You can only book ONE room at a time.\n"
                 "- If the user wants multiple rooms, tell them to repeat the booking process one-by-one.\n"
@@ -336,7 +344,7 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
             "- Always send all the responses in a deccorated format. You are a hotel assistant and you can not send responses in a plain text format. If needed then use emojis and other formatting.\n"
             "- Format dates as YYYY-MM-DD for tools\n"
             "- Congratulate the user after a successful booking.\n"
-            "- Assume current year {current_year} if year not specified\n"
+            "- Assume current year {current_year_str} if year not specified\n"
             "- Provide booking reference and full summary after confirmation.\n"
             "- NEVER enter a loop. If unsure, ask the user for clarification.\n"
             "- Display total cost and nights clearly\n\n"
@@ -351,7 +359,7 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
             "- Display full booking confirmation with all details\n"
             "- Don't repeat information collection\n"
             "- If booking succeeds, congratulate and provide booking reference\n"
-        ).format(current_year=current_year, current_date=current_date)
+        ).format(current_year_str=current_year_str, current_date_str=current_date_str, current_day_str=current_day_str)
 
         lc_messages.append(SystemMessage(content=system_prompt))
 
@@ -571,9 +579,9 @@ async def chat(message: MessageCreate, background_tasks: BackgroundTasks, db: Se
                                 except Exception as e:
                                     logger.error(f"Email preparation error: {e}")
                                     email_status = "error"
-                                
+
                                 # Continue with the flow regardless of email status
-                                if tool_name == "single_room_booking":
+                            if tool_name == "single_room_booking":
                                     # Add email status to the response to communicate it to the frontend
                                     summary_text += f"\n\n[NOTE FOR AI MEMORY]: This booking is completed. Email status: {email_status}. Do not attempt to book again unless the user clearly asks for a new booking."
                                     

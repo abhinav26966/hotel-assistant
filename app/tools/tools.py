@@ -6,6 +6,7 @@ import logging
 from app.models.models import Room, Booking, BookingStatus, User, RoomTypeEnum
 from datetime import date, datetime
 from uuid import uuid4
+from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 def make_get_room_types_tool(db_session):
@@ -66,7 +67,7 @@ def make_get_available_rooms_tool(db_session):
         query = (
             db_session.query(Room, RoomType)
             .join(RoomType, Room.room_type_id == RoomType.id)
-            .filter(~Room.id.in_(db_session.query(booked_rooms_subq.c.room_id)))
+            .filter(~Room.id.in_(select(booked_rooms_subq.c.room_id)))
         )
 
         # Filter by room type if specified
@@ -85,20 +86,20 @@ def make_get_available_rooms_tool(db_session):
         
         # Count the number of rooms available for every room type between the check in and check out dates
         room_type_counts = {}
-        for room in available_rooms:
-            room_type_value = room.RoomType.type.value
-            if room_type_value not in room_type_counts:
-                room_type_counts[room_type_value] = 0
-            room_type_counts[room_type_value] += 1
+        for room, rt in available_rooms:
+            key = rt.type.value
+            room_type_counts[key] = room_type_counts.get(key, 0) + 1
 
         return json.dumps({
             "check_in": check_in,
             "check_out": check_out,
             "nights": (check_out_date - check_in_date).days,
             "room_type": room_type,
-            "available_room_count": room_type_counts.get(room_type, sum(room_type_counts.values()))
+            "available_room_count": (
+                room_type_counts.get(room_type)
+                if room_type else sum(room_type_counts.values())
+            )
         })
-
     return getRooms
 
 
